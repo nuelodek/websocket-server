@@ -40,5 +40,9 @@ wss.on('connection', (ws) => {
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log(`WebSocket server running on port ${PORT}`);
-  console.log(`WebSocket URL: ws://localhost:${PORT}`);
+  if (process.env.RENDER_EXTERNAL_URL) {
+    console.log(`WebSocket URL: wss://${process.env.RENDER_EXTERNAL_URL}`);
+  } else {
+    console.log(`WebSocket URL: ws://localhost:${PORT}`);
+  }
 });

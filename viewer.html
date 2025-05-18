@@ -11,7 +11,7 @@
 
   <script>
     const video = document.getElementById('remoteVideo');
-    const ws = new WebSocket('wss://uslegacy.app/websocket');
+    const ws = new WebSocket('wss://websocket-server-blqp.onrender.com');
 
     let mediaSource = new MediaSource();
     video.src = URL.createObjectURL(mediaSource);

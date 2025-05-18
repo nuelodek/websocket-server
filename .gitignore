@@ -1,0 +1,7 @@
+git rm -r --cached node_modules
+git rm --cached .env
+git commit -m "Remove node_modules and .env from repo"
+git push
+# .gitignore
+node_modules/
+.env
