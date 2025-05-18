@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Student Viewer</title>
 </head>
 <body>
@@ -17,41 +17,91 @@
     video.src = URL.createObjectURL(mediaSource);
 
     let sourceBuffer;
+    let mediaSourceOpen = false;
+    let wsOpen = false;
+    let pendingChunks = [];
+
+    function trySendViewerReady() {
+      if (wsOpen && mediaSourceOpen) {
+        ws.send(JSON.stringify({ type: 'viewer-ready' }));
+        // If we have chunks queued before sourceBuffer was ready, append them now
+        flushPendingChunks();
+      }
+    }
+
+    // Append any chunks that were received before sourceBuffer was ready
+    function flushPendingChunks() {
+      while (pendingChunks.length > 0 && !sourceBuffer.updating && mediaSource.readyState === 'open') {
+        const chunk = pendingChunks.shift();
+        try {
+          sourceBuffer.appendBuffer(chunk);
+          console.log(`📥 Appended pending chunk (${chunk.byteLength} bytes)`);
+        } catch (err) {
+          console.error('⚠️ Error appending buffer:', err);
+          if (err.name === 'QuotaExceededError') {
+            // Remove buffered data to free space
+            sourceBuffer.remove(0, video.currentTime);
+          } else {
+            // If another error, put chunk back and retry later
+            pendingChunks.unshift(chunk);
+            break;
+          }
+        }
+      }
+    }
 
     mediaSource.addEventListener('sourceopen', () => {
       console.log('📺 MediaSource opened');
       sourceBuffer = mediaSource.addSourceBuffer('video/webm; codecs="vp8,opus"');
       sourceBuffer.mode = 'sequence';
-      ws.send(JSON.stringify({ type: 'viewer-ready' }));
+
+      // When update ends, try to append pending chunks
+      sourceBuffer.addEventListener('updateend', () => {
+        flushPendingChunks();
+      });
+
+      mediaSourceOpen = true;
+      trySendViewerReady();
     });
 
     ws.binaryType = 'arraybuffer';
 
-    ws.onmessage = (event) => {
-      if (!event.data) return;
-      
-      const appendChunk = () => {
-        if (sourceBuffer && !sourceBuffer.updating && mediaSource.readyState === 'open') {
-          const chunk = new Uint8Array(event.data);
-          try {
-            sourceBuffer.appendBuffer(chunk);
-            console.log(`📥 Appended chunk (${chunk.length} bytes)`);
-          } catch (err) {
-            console.error('⚠️ Error appending buffer:', err);
-            if (err.name === 'QuotaExceededError') {
-              sourceBuffer.remove(0, video.currentTime);
-            }
-          }
-        } else if (mediaSource.readyState !== 'ended') {
-          setTimeout(appendChunk, 50);
-        }
-      };
-      
-      appendChunk();
+    ws.onopen = () => {
+      console.log('✅ WebSocket connected');
+      wsOpen = true;
+      trySendViewerReady();
     };
 
-    ws.onopen = () => console.log('✅ WebSocket connected');
-    ws.onerror = (err) => console.error('❌ WebSocket error:', err);
+    ws.onmessage = (event) => {
+      if (!event.data) return;
+
+      const chunk = new Uint8Array(event.data);
+
+      if (sourceBuffer && mediaSourceOpen && !sourceBuffer.updating && mediaSource.readyState === 'open') {
+        try {
+          sourceBuffer.appendBuffer(chunk);
+          console.log(`📥 Appended chunk (${chunk.length} bytes)`);
+        } catch (err) {
+          console.error('⚠️ Error appending buffer:', err);
+          if (err.name === 'QuotaExceededError') {
+            sourceBuffer.remove(0, video.currentTime);
+            // Queue chunk for retry after remove
+            pendingChunks.push(chunk);
+          } else {
+            console.error('Unhandled appendBuffer error:', err);
+          }
+        }
+      } else {
+        // If sourceBuffer not ready or busy, queue the chunk for later
+        pendingChunks.push(chunk);
+        console.log(`⏳ Queued chunk (${chunk.length} bytes), sourceBuffer busy or not ready`);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error('❌ WebSocket error:', err);
+    };
+
     ws.onclose = () => {
       console.log('🔌 WebSocket closed');
       setTimeout(() => {
@@ -59,7 +109,7 @@
       }, 3000);
     };
 
-    video.onerror = (err) => {
+    video.onerror = () => {
       console.error('💥 Video Error:', video.error);
     };
 
@@ -71,6 +121,7 @@
       console.log('⚠️ Video playback stalled');
     });
 
+    // Debug info every 300ms
     setInterval(() => {
       if (sourceBuffer) {
         for (let i = 0; i < video.buffered.length; i++) {
@@ -81,8 +132,10 @@
         console.log('📡 Received data type:', ws.binaryType);
         console.log('🔄 Buffer state:', sourceBuffer.updating ? 'updating' : 'idle');
         console.log('📺 MediaSource ready state:', mediaSource.readyState);
+        console.log('📦 Pending chunks queue length:', pendingChunks.length);
       }
     }, 300);
+
   </script>
 </body>
 </html>
