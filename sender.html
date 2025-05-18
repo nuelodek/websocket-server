@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sender - Go Live</title>
+</head>
+<body>
+  <h1>Educator: Go Live</h1>
+  <button id="goLive" type="button">Go Live</button>
+  <button id="stopLive" type="button" disabled>Stop Live</button>
+  <video id="localVideo" autoplay muted playsinline></video>
+
+  <script>
+    
+    const ws = new WebSocket('ws://uslegacy.app/websocket');
+
+    const video = document.getElementById('localVideo');
+    const goLiveBtn = document.getElementById('goLive');
+    const stopLiveBtn = document.getElementById('stopLive');
+
+    let mediaRecorder = null;
+    let stream = null;
+
+    ws.onopen = () => console.log('✅ WebSocket connected');
+    ws.onerror = (err) => console.error('❌ WebSocket error:', err);
+    ws.onclose = () => console.log('🔌 WebSocket closed');
+
+    goLiveBtn.onclick = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        video.srcObject = stream;
+
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp8,opus' });
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+            ws.send(event.data);
+            console.log(`📤 Sent chunk (${event.data.size} bytes)`);
+          }
+        };
+
+        mediaRecorder.onstart = () => {
+          console.log('🎥 MediaRecorder started');
+          goLiveBtn.disabled = true;
+          stopLiveBtn.disabled = false;
+        };
+
+        mediaRecorder.onstop = () => {
+          console.log('🛑 MediaRecorder stopped');
+          goLiveBtn.disabled = false;
+          stopLiveBtn.disabled = true;
+        };
+
+        mediaRecorder.onerror = (e) => console.error('💥 MediaRecorder error:', e);
+
+        mediaRecorder.start(100); // Send chunks every 100ms (balanced performance)
+      } catch (err) {
+        console.error('🚫 Error accessing camera or mic:', err);
+      }
+    };
+
+    stopLiveBtn.onclick = () => {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  </script>
+</body>
+</html>

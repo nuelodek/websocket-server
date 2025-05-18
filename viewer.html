@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Student Viewer</title>
+</head>
+<body>
+  <h1>Student: Watching Live Stream</h1>
+  <video id="remoteVideo" autoplay playsinline controls></video>
+
+  <script>
+    const video = document.getElementById('remoteVideo');
+    const ws = new WebSocket('wss://uslegacy.app/websocket');
+
+    let mediaSource = new MediaSource();
+    video.src = URL.createObjectURL(mediaSource);
+
+    let sourceBuffer;
+
+    mediaSource.addEventListener('sourceopen', () => {
+      console.log('📺 MediaSource opened');
+      sourceBuffer = mediaSource.addSourceBuffer('video/webm; codecs="vp8,opus"');
+      sourceBuffer.mode = 'sequence';
+      ws.send(JSON.stringify({ type: 'viewer-ready' }));
+    });
+
+    ws.binaryType = 'arraybuffer';
+
+    ws.onmessage = (event) => {
+      if (!event.data) return;
+      
+      const appendChunk = () => {
+        if (sourceBuffer && !sourceBuffer.updating && mediaSource.readyState === 'open') {
+          const chunk = new Uint8Array(event.data);
+          try {
+            sourceBuffer.appendBuffer(chunk);
+            console.log(`📥 Appended chunk (${chunk.length} bytes)`);
+          } catch (err) {
+            console.error('⚠️ Error appending buffer:', err);
+            if (err.name === 'QuotaExceededError') {
+              sourceBuffer.remove(0, video.currentTime);
+            }
+          }
+        } else if (mediaSource.readyState !== 'ended') {
+          setTimeout(appendChunk, 50);
+        }
+      };
+      
+      appendChunk();
+    };
+
+    ws.onopen = () => console.log('✅ WebSocket connected');
+    ws.onerror = (err) => console.error('❌ WebSocket error:', err);
+    ws.onclose = () => {
+      console.log('🔌 WebSocket closed');
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
+    };
+
+    video.onerror = (err) => {
+      console.error('💥 Video Error:', video.error);
+    };
+
+    video.addEventListener('waiting', () => {
+      console.log('⏳ Video waiting for data');
+    });
+
+    video.addEventListener('stalled', () => {
+      console.log('⚠️ Video playback stalled');
+    });
+
+    setInterval(() => {
+      if (sourceBuffer) {
+        for (let i = 0; i < video.buffered.length; i++) {
+          console.log(`📊 Buffer ${i}: Start ${video.buffered.start(i)}, End ${video.buffered.end(i)}`);
+        }
+        console.log('📈 Buffer length:', video.buffered.length);
+        console.log('⏱️ Current time:', video.currentTime);
+        console.log('📡 Received data type:', ws.binaryType);
+        console.log('🔄 Buffer state:', sourceBuffer.updating ? 'updating' : 'idle');
+        console.log('📺 MediaSource ready state:', mediaSource.readyState);
+      }
+    }, 300);
+  </script>
+</body>
+</html>
