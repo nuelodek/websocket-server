@@ -1,0 +1,16 @@
+[
+  {
+    "title": "My First Video",
+    "category": "Travel",
+    "tags": "travel, adventure", 
+    "release_date": "2023-01-01",
+    "video_file": "my_first_video.mp4"
+  },
+  {
+    "title": "Cooking with Mayu",
+    "category": "Cooking",
+    "tags": "cooking, food",
+    "release_date": "2023-02-01",
+    "video_file": "cooking_with_mayu.mp4"
+  }
+]
