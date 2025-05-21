@@ -9,30 +9,29 @@ const axios = require('axios');
 // Setup
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ noServer: true }); // <-- CHANGE HERE
+const wss = new WebSocket.Server({ noServer: true });
 
 // Middleware
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(express.static(__dirname));
 
-// Store stream clients
-const streams = new Map();
+// Store stream metadata
+const streams = new Map(); // hashmetric => { sender: ws, viewers: Set<ws> }
 
-// Manual WebSocket upgrade to support dynamic paths
+// WebSocket upgrade handler
 server.on('upgrade', async (req, socket, head) => {
-  const pathname = url.parse(req.url).pathname;
+  const parsedUrl = url.parse(req.url, true);
+  const pathname = parsedUrl.pathname;
+  const hashmetric = pathname.split('/')[2];
+  const role = parsedUrl.query.role;
 
-  // Match paths like /live-stream/<hashmetric>
-  const match = pathname.match(/^\/live-stream\/([a-zA-Z0-9]+)$/);
-  if (!match) {
+  if (!hashmetric || !['sender', 'viewer'].includes(role)) {
     socket.destroy();
     return;
   }
 
-  const hashmetric = match[1];
-
-  // Validate stream hash before accepting connection
+  // Validate the stream
   try {
     const response = await axios.get('http://gegeto.com.ng/fetchstreams.php');
     const data = response.data;
@@ -52,9 +51,10 @@ server.on('upgrade', async (req, socket, head) => {
       return;
     }
 
-    // Proceed with upgrade
+    // Accept connection
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.hashmetric = hashmetric;
+      ws.role = role;
       wss.emit('connection', ws, req);
     });
 
@@ -64,39 +64,61 @@ server.on('upgrade', async (req, socket, head) => {
   }
 });
 
-// WebSocket connection handler
+// WebSocket connection logic
 wss.on('connection', (ws, req) => {
   const hashmetric = ws.hashmetric;
+  const role = ws.role;
 
   if (!streams.has(hashmetric)) {
-    streams.set(hashmetric, new Set());
+    streams.set(hashmetric, { sender: null, viewers: new Set() });
   }
 
-  const streamClients = streams.get(hashmetric);
-  streamClients.add(ws);
+  const stream = streams.get(hashmetric);
 
-  console.log(`Client joined stream: ${hashmetric} (Total: ${streamClients.size})`);
+  if (role === 'sender') {
+    // If another sender already exists, reject
+    if (stream.sender) {
+      ws.close();
+      return;
+    }
+    stream.sender = ws;
+    console.log(`Sender connected for stream: ${hashmetric}`);
+  } else {
+    // Viewer connection
+    stream.viewers.add(ws);
+    console.log(`Viewer connected to stream: ${hashmetric} (Total Viewers: ${stream.viewers.size})`);
+  }
 
+  // Handle messages (only sender sends)
   ws.on('message', (data) => {
-    if (Buffer.isBuffer(data)) {
-      for (const client of streamClients) {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(data);
+    if (role === 'sender' && Buffer.isBuffer(data)) {
+      for (const viewer of stream.viewers) {
+        if (viewer.readyState === WebSocket.OPEN) {
+          viewer.send(data);
         }
       }
     }
   });
 
+  // Handle disconnect
   ws.on('close', () => {
-    streamClients.delete(ws);
-    if (streamClients.size === 0) {
-      streams.delete(hashmetric);
+    if (role === 'sender') {
+      stream.sender = null;
+      console.log(`Sender disconnected from stream: ${hashmetric}`);
+    } else {
+      stream.viewers.delete(ws);
+      console.log(`Viewer left stream: ${hashmetric} (Remaining Viewers: ${stream.viewers.size})`);
     }
-    console.log(`Client left stream: ${hashmetric} (Remaining: ${streamClients.size})`);
+
+    // Clean up empty stream
+    if (!stream.sender && stream.viewers.size === 0) {
+      streams.delete(hashmetric);
+      console.log(`Stream ${hashmetric} cleaned up.`);
+    }
   });
 });
 
-// WhatsApp webhook endpoint
+// WhatsApp Webhook
 app.post('/whatsapp-webhook', (req, res) => {
   const twiml = new MessagingResponse();
   twiml.message('Message received');
