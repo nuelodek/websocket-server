@@ -1,0 +1,15 @@
+Statement of Originality
+
+I, Emmanuel Odekunle, hereby declare that I am the original creator and sole developer of the software platforms known as Gegeto and PennySchool.
+
+Development on Gegeto commenced on August 8, 2024, and was completed on May 21, 2025.
+
+Development on PennySchool commenced on December 21, 2024, and was completed on April 10, 2025.
+
+All concepts, design, coding, architecture, and implementation of these platforms are my own work and intellectual property. No third-party or external contributions influenced the core technology or business models during the development period stated.
+
+I reserve all rights to the software, algorithms, intellectual property, and any related materials developed as part of these projects.
+
+Signed,
+Emmanuel Odekunle
+Date: 21st of May 2024
