@@ -6,35 +6,39 @@ const { MessagingResponse } = require('twilio').twiml;
 const url = require('url');
 const axios = require('axios');
 
-// Create server
+// Setup
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server, path: "/live-stream" });
+const wss = new WebSocket.Server({ noServer: true }); // <-- CHANGE HERE
 
 // Middleware
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-app.use(express.static(__dirname)); // Serve frontend files
+app.use(express.static(__dirname));
 
-// Store viewers per stream hash
+// Store stream clients
 const streams = new Map();
 
-wss.on('connection', async (ws, req) => {
+// Manual WebSocket upgrade to support dynamic paths
+server.on('upgrade', async (req, socket, head) => {
   const pathname = url.parse(req.url).pathname;
-  const hashmetric = pathname.split('/')[2];
 
-  if (!hashmetric) {
-    ws.close();
+  // Match paths like /live-stream/<hashmetric>
+  const match = pathname.match(/^\/live-stream\/([a-zA-Z0-9]+)$/);
+  if (!match) {
+    socket.destroy();
     return;
   }
 
-  // Validate hashmetric using PHP API
+  const hashmetric = match[1];
+
+  // Validate stream hash before accepting connection
   try {
-    const response = await axios.get('http://gegeto.com.ng/fetchstreams.php'); // Adjust URL if hosted elsewhere
+    const response = await axios.get('http://gegeto.com.ng/fetchstreams.php');
     const data = response.data;
 
     if (data.status !== 'success') {
-      ws.close();
+      socket.destroy();
       return;
     }
 
@@ -44,17 +48,26 @@ wss.on('connection', async (ws, req) => {
     );
 
     if (!validStream) {
-      ws.close();
+      socket.destroy();
       return;
     }
 
-  } catch (error) {
-    console.error('Stream validation error:', error.message);
-    ws.close();
-    return;
-  }
+    // Proceed with upgrade
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.hashmetric = hashmetric;
+      wss.emit('connection', ws, req);
+    });
 
-  // Register connection to stream
+  } catch (err) {
+    console.error('Stream validation error during upgrade:', err.message);
+    socket.destroy();
+  }
+});
+
+// WebSocket connection handler
+wss.on('connection', (ws, req) => {
+  const hashmetric = ws.hashmetric;
+
   if (!streams.has(hashmetric)) {
     streams.set(hashmetric, new Set());
   }
@@ -83,7 +96,7 @@ wss.on('connection', async (ws, req) => {
   });
 });
 
-// WhatsApp Webhook
+// WhatsApp webhook endpoint
 app.post('/whatsapp-webhook', (req, res) => {
   const twiml = new MessagingResponse();
   twiml.message('Message received');
