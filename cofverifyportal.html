@@ -1,0 +1,226 @@
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>COFO Verification Portal</title>
+      <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  </head>
+  <body>
+      <div class="container mt-5">
+          <h2>COFO Document Verification Portal</h2>
+        
+          <!-- Upload Form -->
+          <div class="card mb-4">
+              <div class="card-body">
+                  <h5 class="card-title">Upload New Document</h5>
+                  <form id="uploadForm">
+                      <div class="mb-3">
+                          <label class="form-label">Owner Name</label>
+                          <input type="text" class="form-control" name="ownerName" required>
+                      </div>
+                      <div class="mb-3">
+                          <label class="form-label">Property Location</label>
+                          <input type="text" class="form-control" name="propertyLocation" required>
+                      </div>
+                      <div class="mb-3">
+                          <label class="form-label">COFO Number</label>
+                          <input type="text" class="form-control" name="cofoNumber" required>
+                      </div>
+                      <div class="mb-3">
+                          <label class="form-label">Document</label>
+                          <input type="file" class="form-control" name="document" required>
+                      </div>
+                      <button type="submit" class="btn btn-primary">Upload</button>
+                  </form>
+              </div>
+          </div>
+
+          <!-- Documents List -->
+          <div class="card">
+              <div class="card-body">
+                  <h5 class="card-title">Documents List</h5>
+                  <div class="table-responsive">
+                      <table class="table">
+                          <thead>
+                              <tr>
+                                  <th>ID</th>
+                                  <th>Owner</th>
+                                  <th>Location</th>
+                                  <th>COFO Number</th>
+                                  <th>Status</th>
+                                  <th>Actions</th>
+                              </tr>
+                          </thead>
+                          <tbody id="documentsTable"></tbody>
+                      </table>
+                  </div>
+              </div>
+          </div>
+      </div>
+
+      <!-- Verification Modal -->
+      <div class="modal fade" id="verificationModal" tabindex="-1">
+          <div class="modal-dialog">
+              <div class="modal-content">
+                  <div class="modal-header">
+                      <h5 class="modal-title">Verify Document</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                  </div>
+                  <div class="modal-body">
+                      <form id="verificationForm">
+                          <div class="mb-3">
+                              <label class="form-label">Status</label>
+                              <select class="form-select" name="status" required>
+                                  <option value="verified">Verified</option>
+                                  <option value="rejected">Rejected</option>
+                              </select>
+                          </div>
+                          <div class="mb-3">
+                              <label class="form-label">Notes</label>
+                              <textarea class="form-control" name="notes" rows="3"></textarea>
+                          </div>
+                          <div class="mb-3">
+                              <label class="form-label">Verified By</label>
+                              <input type="text" class="form-control" name="verifiedBy" required>
+                          </div>
+                      </form>
+                  </div>
+                  <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                      <button type="button" class="btn btn-primary" id="submitVerification">Submit</button>
+                  </div>
+              </div>
+          </div>
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+      <script>
+          const API_BASE_URL = 'http://localhost:10000/api';
+          let currentDocumentId = null;
+
+          document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+            
+              try {
+                  const response = await fetch(`${API_BASE_URL}/cofodocuments`, {
+                      method: 'POST',
+                      body: formData,
+                      mode: 'cors'
+                  });
+                  if (!response.ok) throw new Error('Upload failed');
+                  loadDocuments();
+                  e.target.reset();
+              } catch (error) {
+                  alert('Error uploading document: ' + error.message);
+              }
+          });
+
+          async function loadDocuments() {
+              try {
+                  const response = await fetch(`${API_BASE_URL}/cofodocuments`, {
+                      method: 'GET',
+                      mode: 'cors',
+                      headers: {
+                          'Content-Type': 'application/json'
+                      }
+                  });
+                  const documents = await response.json();
+                  const tbody = document.getElementById('documentsTable');
+                  tbody.innerHTML = '';
+                
+                  documents.forEach(doc => {
+                      const tr = document.createElement('tr');
+                      tr.innerHTML = `
+                          <td>${doc.id}</td>
+                          <td>${doc.ownerName}</td>
+                          <td>${doc.propertyLocation}</td>
+                          <td>${doc.cofoNumber}</td>
+                          <td>${doc.status}</td>
+                          <td>
+                              <button class="btn btn-sm btn-primary verify-btn" data-id="${doc.id}">Verify</button>
+                              <button class="btn btn-sm btn-danger delete-btn" data-id="${doc.id}">Delete</button>
+                          </td>
+                      `;
+                      tbody.appendChild(tr);
+                  });
+
+                  document.querySelectorAll('.verify-btn').forEach(btn => {
+                      btn.addEventListener('click', (e) => {
+                          currentDocumentId = e.target.dataset.id;
+                          new bootstrap.Modal(document.getElementById('verificationModal')).show();
+                      });
+                  });
+
+                  document.querySelectorAll('.delete-btn').forEach(btn => {
+                      btn.addEventListener('click', async (e) => {
+                          if (confirm('Are you sure you want to delete this document?')) {
+                              try {
+                                  const response = await fetch(`${API_BASE_URL}/cofodocuments/${e.target.dataset.id}`, {
+                                      method: 'DELETE',
+                                      mode: 'cors'
+                                  });
+                                  if (!response.ok) throw new Error('Delete failed');
+                                  loadDocuments();
+                              } catch (error) {
+                                  alert('Error deleting document: ' + error.message);
+                              }
+                          }
+                      });
+                  });
+              } catch (error) {
+                  alert('Error loading documents: ' + error.message);
+              }
+          }
+
+          document.getElementById('submitVerification').addEventListener('click', async () => {
+              const form = document.getElementById('verificationForm');
+              const formData = new FormData(form);
+              const data = {
+                  status: formData.get('status'),
+                  notes: formData.get('notes'),
+                  verifiedBy: formData.get('verifiedBy')
+              };
+
+              console.log ('Verification Data:', data);
+
+                if (!currentDocumentId) {
+                    alert('No document selected for verification');
+                    return;
+                }
+                if (!data.status || !data.verifiedBy) {
+                    alert('Please fill in all required fields');
+                    return;
+                }
+            
+                if (data.status !== 'verified' && data.status !== 'rejected') {
+                        alert('Invalid status selected');
+                        return;
+                    }
+                    if (data.status === 'rejected' && !data.notes) {
+                    alert('Notes are required for rejected status');
+                    return;
+                }
+              try {
+                  const response = await fetch(`${API_BASE_URL}/cofodocuments/${currentDocumentId}/verify`, {
+                      method: 'POST',
+                      headers: {
+                          'Content-Type': 'application/json'
+                      },
+                      mode: 'cors',
+                      body: JSON.stringify(data)
+                  });
+                  if (!response.ok) throw new Error('Verification failed');
+                
+                  bootstrap.Modal.getInstance(document.getElementById('verificationModal')).hide();
+                  form.reset();
+                  loadDocuments();
+              } catch (error) {
+                  alert('Error verifying document: ' + error.message);
+              }
+          });
+          document.addEventListener('DOMContentLoaded', loadDocuments);
+      </script>
+  </body>
+  </html>
